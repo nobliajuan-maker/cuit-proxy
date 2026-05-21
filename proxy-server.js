@@ -4,6 +4,11 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// delay helper
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // VALIDAR CUIT
 function validarCUIT(cuit) {
   const clean = cuit.replace(/-/g, "");
@@ -23,15 +28,12 @@ function validarCUIT(cuit) {
   return mod === parseInt(clean[10]);
 }
 
-// LIMPIAR TEXTO HTML
-function limpiarTexto(html) {
-  return html
-    .replace(/<[^>]+>/g, " ") // saca tags
-    .replace(/\s+/g, " ")     // limpia espacios
-    .trim();
+// limpiar html
+function limpiar(html) {
+  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// SCORE
+// score
 function scoreMatch(busqueda, texto) {
   let score = 0;
   const palabras = busqueda.split(" ");
@@ -43,7 +45,7 @@ function scoreMatch(busqueda, texto) {
   return score;
 }
 
-// EXTRAER RESULTADOS
+// extraer
 function extraer(html, nombre) {
 
   const regex = /\d{2}-\d{8}-\d{1}/g;
@@ -60,7 +62,7 @@ function extraer(html, nombre) {
     const idx = html.indexOf(cuit);
     let contexto = html.substring(idx - 200, idx + 200).toUpperCase();
 
-    contexto = limpiarTexto(contexto);
+    contexto = limpiar(contexto);
 
     resultados.push({
       cuit,
@@ -83,8 +85,16 @@ app.get("/buscar", async (req, res) => {
     const query = `site:cuitonline.com ${nombre}`;
     const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
+    // pequeño delay (evita 429)
+    await sleep(2000);
+
     const response = await axios.get(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "es-AR,es;q=0.9",
+        "Connection": "keep-alive"
+      }
     });
 
     const html = response.data;
@@ -105,7 +115,7 @@ app.get("/buscar", async (req, res) => {
 
     res.json({
       estado: resultados.length > 1
-        ? "Aproximado (varias opciones)"
+        ? "Aproximado (múltiples CUIT)"
         : "Exacto",
       cuit: mejor.cuit,
       encontrado: mejor.contexto,
@@ -113,6 +123,14 @@ app.get("/buscar", async (req, res) => {
     });
 
   } catch (err) {
+
+    if (err.response?.status === 429) {
+      return res.json({
+        estado: "Bloqueado temporalmente (Google)",
+        mensaje: "Reintentar en unos segundos"
+      });
+    }
+
     res.json({
       estado: "Error",
       error: err.message
