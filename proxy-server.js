@@ -1,6 +1,5 @@
 const express = require("express");
 const axios = require("axios");
-const cheerio = require("cheerio");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,15 +24,44 @@ function validarCUIT(cuit) {
 }
 
 // SCORE
-function scoreMatch(busqueda, nombre) {
+function scoreMatch(busqueda, texto) {
   let score = 0;
   const palabras = busqueda.split(" ");
 
   for (let p of palabras) {
-    if (nombre.includes(p)) score++;
+    if (texto.includes(p)) score++;
   }
 
   return score;
+}
+
+// EXTRAER CUITS DEL HTML
+function extraerResultados(html, nombreBuscado) {
+
+  const regex = /\d{2}-\d{8}-\d{1}/g;
+  const matches = html.match(regex);
+
+  if (!matches) return [];
+
+  const resultados = [];
+
+  matches.forEach(cuit => {
+
+    if (!validarCUIT(cuit)) return;
+
+    // agarrar contexto alrededor
+    const index = html.indexOf(cuit);
+    const fragmento = html.substring(index - 200, index + 200).toUpperCase();
+
+    resultados.push({
+      nombre: fragmento,
+      cuit: cuit,
+      score: scoreMatch(nombreBuscado, fragmento)
+    });
+
+  });
+
+  return resultados;
 }
 
 // ENDPOINT
@@ -52,41 +80,19 @@ app.get("/buscar", async (req, res) => {
     });
 
     const html = response.data;
-    const $ = cheerio.load(html);
 
-    let resultados = [];
-
-    $("a").each((_, el) => {
-
-      const texto = $(el).text().toUpperCase();
-
-      const match = texto.match(/\d{2}-\d{8}-\d{1}/);
-
-      if (match) {
-
-        const cuit = match[0];
-
-        if (!validarCUIT(cuit)) return;
-
-        resultados.push({
-          nombre: texto,
-          cuit: cuit
-        });
-      }
-    });
+    const resultados = extraerResultados(html, nombre);
 
     if (resultados.length === 0) {
       return res.json({ estado: "No encontrado" });
     }
 
-    let mejor = null;
-    let mejorScore = 0;
+    // elegir mejor
+    let mejor = resultados[0];
 
     resultados.forEach(r => {
-      const score = scoreMatch(nombre, r.nombre);
-      if (score > mejorScore) {
+      if (r.score > mejor.score) {
         mejor = r;
-        mejorScore = score;
       }
     });
 
@@ -94,12 +100,13 @@ app.get("/buscar", async (req, res) => {
       estado: resultados.length > 1
         ? "Aproximado (varias opciones)"
         : "Exacto",
-      encontrado: mejor.nombre,
       cuit: mejor.cuit,
+      encontrado: mejor.nombre,
       opciones: resultados.length
     });
 
   } catch (err) {
+
     res.json({
       estado: "Error",
       error: err.message
@@ -109,5 +116,6 @@ app.get("/buscar", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("Proxy corriendo");
+  console.log("Proxy funcionando ✅");
 });
+``
