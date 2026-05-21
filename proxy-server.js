@@ -35,8 +35,8 @@ function scoreMatch(busqueda, texto) {
   return score;
 }
 
-// EXTRAER CUITS DEL HTML
-function extraerResultados(html, nombreBuscado) {
+// EXTRAER CUITS
+function extraer(html, nombre) {
 
   const regex = /\d{2}-\d{8}-\d{1}/g;
   const matches = html.match(regex);
@@ -49,14 +49,13 @@ function extraerResultados(html, nombreBuscado) {
 
     if (!validarCUIT(cuit)) return;
 
-    // agarrar contexto alrededor
     const index = html.indexOf(cuit);
-    const fragmento = html.substring(index - 200, index + 200).toUpperCase();
+    const contexto = html.substring(index - 150, index + 150).toUpperCase();
 
     resultados.push({
-      nombre: fragmento,
-      cuit: cuit,
-      score: scoreMatch(nombreBuscado, fragmento)
+      cuit,
+      contexto,
+      score: scoreMatch(nombre, contexto)
     });
 
   });
@@ -71,7 +70,9 @@ app.get("/buscar", async (req, res) => {
 
   try {
 
-    const url = `https://www.cuitonline.com/search/${encodeURIComponent(nombre)}`;
+    const query = `site:cuitonline.com ${nombre}`;
+
+    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
     const response = await axios.get(url, {
       headers: {
@@ -81,13 +82,12 @@ app.get("/buscar", async (req, res) => {
 
     const html = response.data;
 
-    const resultados = extraerResultados(html, nombre);
+    const resultados = extraer(html, nombre);
 
     if (resultados.length === 0) {
       return res.json({ estado: "No encontrado" });
     }
 
-    // elegir mejor
     let mejor = resultados[0];
 
     resultados.forEach(r => {
@@ -98,10 +98,9 @@ app.get("/buscar", async (req, res) => {
 
     res.json({
       estado: resultados.length > 1
-        ? "Aproximado (varias opciones)"
+        ? "Aproximado (múltiples CUIT)"
         : "Exacto",
       cuit: mejor.cuit,
-      encontrado: mejor.nombre,
       opciones: resultados.length
     });
 
@@ -118,4 +117,3 @@ app.get("/buscar", async (req, res) => {
 app.listen(PORT, () => {
   console.log("Proxy funcionando ✅");
 });
-``
