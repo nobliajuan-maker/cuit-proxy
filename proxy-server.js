@@ -1,18 +1,39 @@
 const express = require("express");
 const axios = require("axios");
+const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ARCHIVO CACHE
+const CACHE_FILE = "cache.json";
+
+// cargar cache
+function loadCache() {
+  try {
+    return JSON.parse(fs.readFileSync(CACHE_FILE));
+  } catch {
+    return [];
+  }
+}
+
+// guardar cache
+function saveCache(data) {
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2));
+}
+
+let cache = loadCache();
+
 // VALIDAR CUIT
 function validarCUIT(cuit) {
   const clean = cuit.replace(/-/g, "");
+
   if (clean.length !== 11) return false;
 
   const mult = [5,4,3,2,7,6,5,4,3,2];
   let total = 0;
 
-  for (let i = 0; i < 10; i++) {
+  for (let i=0; i<10; i++) {
     total += parseInt(clean[i]) * mult[i];
   }
 
@@ -23,15 +44,12 @@ function validarCUIT(cuit) {
   return mod === parseInt(clean[10]);
 }
 
-// LIMPIAR TEXTO
+// limpiar texto
 function limpiar(texto) {
-  return texto
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return texto.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// SCORE MATCH
+// score
 function scoreMatch(busqueda, texto) {
   let score = 0;
   const palabras = busqueda.split(" ");
@@ -43,21 +61,21 @@ function scoreMatch(busqueda, texto) {
   return score;
 }
 
-// DETECTAR LOCALIDAD
+// localidad
 function extraerLocalidad(texto) {
 
   const localidades = [
     "BUENOS AIRES",
-    "CIUDAD AUTONOMA DE BUENOS AIRES",
     "CABA",
+    "CIUDAD AUTONOMA",
     "CORDOBA",
     "ROSARIO",
     "SANTA FE",
     "MENDOZA",
     "TUCUMAN",
     "SALTA",
-    "MAR DEL PLATA",
-    "LA PLATA"
+    "LA PLATA",
+    "MAR DEL PLATA"
   ];
 
   for (let loc of localidades) {
@@ -69,7 +87,7 @@ function extraerLocalidad(texto) {
   return "";
 }
 
-// EXTRAER RESULTADOS
+// extraer resultados
 function extraer(html, nombre) {
 
   const regex = /\d{2}-\d{8}-\d{1}/g;
@@ -88,12 +106,10 @@ function extraer(html, nombre) {
     let contexto = html.substring(idx - 200, idx + 200).toUpperCase();
     contexto = limpiar(contexto);
 
-    const localidad = extraerLocalidad(contexto);
-
     resultados.push({
       cuit,
       contexto,
-      localidad,
+      localidad: extraerLocalidad(contexto),
       score: scoreMatch(nombre, contexto)
     });
 
@@ -102,20 +118,51 @@ function extraer(html, nombre) {
   return resultados;
 }
 
+// buscar en cache
+function buscarEnCache(nombre) {
+  return cache.find(e => e.nombre === nombre);
+}
+
+// guardar en cache
+function guardarEnCache(nombre, data) {
+
+  const existe = buscarEnCache(nombre);
+
+  if (!existe && data.cuit) {
+    cache.push({
+      nombre,
+      ...data
+    });
+
+    saveCache(cache);
+    console.log("Guardado en cache ✅", nombre);
+  }
+}
+
 // ENDPOINT
 app.get("/buscar", async (req, res) => {
 
   const nombre = (req.query.nombre || "").toUpperCase();
 
+  // 🔥 1. BUSCAR EN CACHE
+  const enCache = buscarEnCache(nombre);
+
+  if (enCache) {
+    return res.json({
+      estado: "Cache",
+      ...enCache,
+      fuente: "cache"
+    });
+  }
+
   try {
 
+    // 🔥 2. BUSCAR EN BING
     const query = `site:cuitonline.com ${nombre}`;
     const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
 
     const response = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0"
-      }
+      headers: { "User-Agent": "Mozilla/5.0" }
     });
 
     const html = response.data;
@@ -134,15 +181,21 @@ app.get("/buscar", async (req, res) => {
       }
     });
 
-    res.json({
-      estado: resultados.length > 1
-        ? "Aproximado (múltiples CUIT)"
-        : "Exacto",
+    const resultFinal = {
+      nombre,
       cuit: mejor.cuit,
       encontrado: mejor.contexto,
       localidad: mejor.localidad,
-      opciones: resultados.length
-    });
+      opciones: resultados.length,
+      estado: resultados.length > 1
+        ? "Aproximado (múltiples CUIT)"
+        : "Exacto"
+    };
+
+    // 🔥 3. GUARDAR EN CACHE
+    guardarEnCache(nombre, resultFinal);
+
+    res.json(resultFinal);
 
   } catch (err) {
     res.json({
@@ -154,6 +207,6 @@ app.get("/buscar", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("Proxy con localidad funcionando ✅");
+  console.log("Proxy con cache funcionando ✅");
 });
 ``
