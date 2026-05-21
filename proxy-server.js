@@ -23,6 +23,14 @@ function validarCUIT(cuit) {
   return mod === parseInt(clean[10]);
 }
 
+// LIMPIAR TEXTO HTML
+function limpiarTexto(html) {
+  return html
+    .replace(/<[^>]+>/g, " ") // saca tags
+    .replace(/\s+/g, " ")     // limpia espacios
+    .trim();
+}
+
 // SCORE
 function scoreMatch(busqueda, texto) {
   let score = 0;
@@ -35,7 +43,7 @@ function scoreMatch(busqueda, texto) {
   return score;
 }
 
-// EXTRAER CUITS
+// EXTRAER RESULTADOS
 function extraer(html, nombre) {
 
   const regex = /\d{2}-\d{8}-\d{1}/g;
@@ -49,8 +57,10 @@ function extraer(html, nombre) {
 
     if (!validarCUIT(cuit)) return;
 
-    const index = html.indexOf(cuit);
-    const contexto = html.substring(index - 150, index + 150).toUpperCase();
+    const idx = html.indexOf(cuit);
+    let contexto = html.substring(idx - 200, idx + 200).toUpperCase();
+
+    contexto = limpiarTexto(contexto);
 
     resultados.push({
       cuit,
@@ -71,13 +81,10 @@ app.get("/buscar", async (req, res) => {
   try {
 
     const query = `site:cuitonline.com ${nombre}`;
-
     const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
     const response = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0"
-      }
+      headers: { "User-Agent": "Mozilla/5.0" }
     });
 
     const html = response.data;
@@ -98,14 +105,14 @@ app.get("/buscar", async (req, res) => {
 
     res.json({
       estado: resultados.length > 1
-        ? "Aproximado (múltiples CUIT)"
+        ? "Aproximado (varias opciones)"
         : "Exacto",
       cuit: mejor.cuit,
+      encontrado: mejor.contexto,
       opciones: resultados.length
     });
 
   } catch (err) {
-
     res.json({
       estado: "Error",
       error: err.message
@@ -117,3 +124,4 @@ app.get("/buscar", async (req, res) => {
 app.listen(PORT, () => {
   console.log("Proxy funcionando ✅");
 });
+``
