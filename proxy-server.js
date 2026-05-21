@@ -4,11 +4,6 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// delay helper
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // VALIDAR CUIT
 function validarCUIT(cuit) {
   const clean = cuit.replace(/-/g, "");
@@ -17,7 +12,7 @@ function validarCUIT(cuit) {
   const mult = [5,4,3,2,7,6,5,4,3,2];
   let total = 0;
 
-  for (let i=0; i<10; i++) {
+  for (let i = 0; i < 10; i++) {
     total += parseInt(clean[i]) * mult[i];
   }
 
@@ -28,12 +23,15 @@ function validarCUIT(cuit) {
   return mod === parseInt(clean[10]);
 }
 
-// limpiar html
-function limpiar(html) {
-  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+// LIMPIAR TEXTO
+function limpiar(texto) {
+  return texto
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-// score
+// SCORE MATCH
 function scoreMatch(busqueda, texto) {
   let score = 0;
   const palabras = busqueda.split(" ");
@@ -45,7 +43,33 @@ function scoreMatch(busqueda, texto) {
   return score;
 }
 
-// extraer
+// DETECTAR LOCALIDAD
+function extraerLocalidad(texto) {
+
+  const localidades = [
+    "BUENOS AIRES",
+    "CIUDAD AUTONOMA DE BUENOS AIRES",
+    "CABA",
+    "CORDOBA",
+    "ROSARIO",
+    "SANTA FE",
+    "MENDOZA",
+    "TUCUMAN",
+    "SALTA",
+    "MAR DEL PLATA",
+    "LA PLATA"
+  ];
+
+  for (let loc of localidades) {
+    if (texto.includes(loc)) {
+      return loc;
+    }
+  }
+
+  return "";
+}
+
+// EXTRAER RESULTADOS
 function extraer(html, nombre) {
 
   const regex = /\d{2}-\d{8}-\d{1}/g;
@@ -60,13 +84,16 @@ function extraer(html, nombre) {
     if (!validarCUIT(cuit)) return;
 
     const idx = html.indexOf(cuit);
-    let contexto = html.substring(idx - 200, idx + 200).toUpperCase();
 
+    let contexto = html.substring(idx - 200, idx + 200).toUpperCase();
     contexto = limpiar(contexto);
+
+    const localidad = extraerLocalidad(contexto);
 
     resultados.push({
       cuit,
       contexto,
+      localidad,
       score: scoreMatch(nombre, contexto)
     });
 
@@ -83,17 +110,11 @@ app.get("/buscar", async (req, res) => {
   try {
 
     const query = `site:cuitonline.com ${nombre}`;
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-
-    // pequeño delay (evita 429)
-    await sleep(2000);
+    const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
 
     const response = await axios.get(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "es-AR,es;q=0.9",
-        "Connection": "keep-alive"
+        "User-Agent": "Mozilla/5.0"
       }
     });
 
@@ -119,18 +140,11 @@ app.get("/buscar", async (req, res) => {
         : "Exacto",
       cuit: mejor.cuit,
       encontrado: mejor.contexto,
+      localidad: mejor.localidad,
       opciones: resultados.length
     });
 
   } catch (err) {
-
-    if (err.response?.status === 429) {
-      return res.json({
-        estado: "Bloqueado temporalmente (Google)",
-        mensaje: "Reintentar en unos segundos"
-      });
-    }
-
     res.json({
       estado: "Error",
       error: err.message
@@ -140,6 +154,6 @@ app.get("/buscar", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("Proxy funcionando ✅");
+  console.log("Proxy con localidad funcionando ✅");
 });
 ``
